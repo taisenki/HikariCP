@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2014 Brett Wooldridge
+ * Copyright (C) 2016 Brett Wooldridge
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 package com.zaxxer.hikari.metrics.prometheus;
 
-import com.zaxxer.hikari.metrics.MetricsTracker;
+import com.zaxxer.hikari.metrics.IMetricsTracker;
 import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
 import com.zaxxer.hikari.metrics.PoolStats;
 
@@ -27,9 +27,22 @@ import com.zaxxer.hikari.metrics.PoolStats;
  * }</pre>
  */
 public class PrometheusMetricsTrackerFactory implements MetricsTrackerFactory {
+
+   private static HikariCPCollector collector;
+
    @Override
-   public MetricsTracker create(String poolName, PoolStats poolStats) {
-      new HikariCPCollector(poolName, poolStats).register();
+   public IMetricsTracker create(String poolName, PoolStats poolStats) {
+      getCollector().add(poolName, poolStats);
       return new PrometheusMetricsTracker(poolName);
+   }
+
+   /**
+    * initialize and register collector if it isn't initialized yet
+    */
+   private HikariCPCollector getCollector() {
+      if (collector == null) {
+         collector = new HikariCPCollector().register();
+      }
+      return collector;
    }
 }

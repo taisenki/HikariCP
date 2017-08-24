@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2014 Brett Wooldridge
+ * Copyright (C) 2013 Brett Wooldridge
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,53 +16,69 @@
 
 package com.zaxxer.hikari.metrics.prometheus;
 
-import com.zaxxer.hikari.metrics.MetricsTracker;
+import com.zaxxer.hikari.metrics.IMetricsTracker;
+import io.prometheus.client.Collector;
+import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.Counter;
 import io.prometheus.client.Summary;
+import java.util.concurrent.TimeUnit;
 
-class PrometheusMetricsTracker extends MetricsTracker {
-   private final Counter.Child connectionTimeoutCounter;
-   private final Summary.Child elapsedAcquiredSummary;
-   private final Summary.Child elapsedBorrowedSummary;
+class PrometheusMetricsTracker implements IMetricsTracker
+{
+   private static final Counter CONNECTION_TIMEOUT_COUNTER = Counter.build()
+      .name("hikaricp_connection_timeout_total")
+      .labelNames("pool")
+      .help("Connection timeout total count")
+      .register();
+   private static final Summary ELAPSED_ACQUIRED_SUMMARY = Summary.build()
+      .name("hikaricp_connection_acquired_nanos")
+      .labelNames("pool")
+      .help("Connection acquired time (ns)")
+      .register();
+   private static final Summary ELAPSED_BORROWED_SUMMARY = Summary.build()
+      .name("hikaricp_connection_usage_millis")
+      .labelNames("pool")
+      .help("Connection usage (ms)")
+      .register();
+   private static final Summary ELAPSED_CREATION_SUMMARY = Summary.build()
+      .name("hikaricp_connection_creation_millis")
+      .labelNames("pool")
+      .help("Connection creation (ms)")
+      .register();
+
+   private final Counter.Child connectionTimeoutCounterChild;
+   private final Summary.Child elapsedAcquiredSummaryChild;
+   private final Summary.Child elapsedBorrowedSummaryChild;
+   private final Summary.Child elapsedCreationSummaryChild;
 
    PrometheusMetricsTracker(String poolName) {
-      super();
-
-      Counter counter = Counter.build()
-         .name("hikaricp_connection_timeout_count")
-         .labelNames("pool")
-         .help("Connection timeout count")
-         .register();
-
-      this.connectionTimeoutCounter = counter.labels(poolName);
-
-      Summary elapsedAcquiredSummary = Summary.build()
-         .name("hikaricp_connection_acquired_nanos")
-         .labelNames("pool")
-         .help("Connection acquired time")
-         .register();
-      this.elapsedAcquiredSummary = elapsedAcquiredSummary.labels(poolName);
-
-      Summary elapsedBorrowedSummary = Summary.build()
-         .name("hikaricp_connection_usage_millis")
-         .labelNames("pool")
-         .help("Connection usage")
-         .register();
-      this.elapsedBorrowedSummary = elapsedBorrowedSummary.labels(poolName);
+      this.connectionTimeoutCounterChild = CONNECTION_TIMEOUT_COUNTER.labels(poolName);
+      this.elapsedAcquiredSummaryChild = ELAPSED_ACQUIRED_SUMMARY.labels(poolName);
+      this.elapsedBorrowedSummaryChild = ELAPSED_BORROWED_SUMMARY.labels(poolName);
+      this.elapsedCreationSummaryChild = ELAPSED_CREATION_SUMMARY.labels(poolName);
    }
 
    @Override
-   public void recordConnectionAcquiredNanos(long elapsedAcquiredNanos) {
-      elapsedAcquiredSummary.observe(elapsedAcquiredNanos);
+   public void recordConnectionAcquiredNanos(long elapsedAcquiredNanos)
+   {
+      elapsedAcquiredSummaryChild.observe(elapsedAcquiredNanos);
    }
 
    @Override
-   public void recordConnectionUsageMillis(long elapsedBorrowedMillis) {
-      elapsedBorrowedSummary.observe(elapsedBorrowedMillis);
+   public void recordConnectionUsageMillis(long elapsedBorrowedMillis)
+   {
+      elapsedBorrowedSummaryChild.observe(elapsedBorrowedMillis);
    }
 
    @Override
-   public void recordConnectionTimeout() {
-      connectionTimeoutCounter.inc();
+   public void recordConnectionCreatedMillis(long connectionCreatedMillis)
+   {
+      elapsedCreationSummaryChild.observe(connectionCreatedMillis);
+   }
+
+   @Override
+   public void recordConnectionTimeout()
+   {
+      connectionTimeoutCounterChild.inc();
    }
 }

@@ -16,12 +16,14 @@
 
 package com.zaxxer.hikari.util;
 
+import static java.lang.Thread.currentThread;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.util.Locale;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadFactory;
@@ -43,7 +45,7 @@ public final class UtilityElf
    }
 
    /**
-    * Sleep and transform an InterruptedException into a RuntimeException.
+    * Sleep and suppress InterruptedException (but re-signal it).
     *
     * @param millis the number of milliseconds to sleep
     */
@@ -54,6 +56,7 @@ public final class UtilityElf
       }
       catch (InterruptedException e) {
          // I said be quiet!
+         currentThread().interrupt();
       }
    }
 
@@ -107,6 +110,26 @@ public final class UtilityElf
       }
 
       LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<>(queueSize);
+      ThreadPoolExecutor executor = new ThreadPoolExecutor(1 /*core*/, 1 /*max*/, 5 /*keepalive*/, SECONDS, queue, threadFactory, policy);
+      executor.allowCoreThreadTimeOut(true);
+      return executor;
+   }
+
+   /**
+    * Create a ThreadPoolExecutor.
+    *
+    * @param queue the BlockingQueue to use
+    * @param threadName the thread name
+    * @param threadFactory an optional ThreadFactory
+    * @param policy the RejectedExecutionHandler policy
+    * @return a ThreadPoolExecutor
+    */
+   public static ThreadPoolExecutor createThreadPoolExecutor(final BlockingQueue<Runnable> queue, final String threadName, ThreadFactory threadFactory, final RejectedExecutionHandler policy)
+   {
+      if (threadFactory == null) {
+         threadFactory = new DefaultThreadFactory(threadName, true);
+      }
+
       ThreadPoolExecutor executor = new ThreadPoolExecutor(1 /*core*/, 1 /*max*/, 5 /*keepalive*/, SECONDS, queue, threadFactory, policy);
       executor.allowCoreThreadTimeOut(true);
       return executor;

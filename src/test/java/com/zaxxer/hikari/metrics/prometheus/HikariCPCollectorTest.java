@@ -16,32 +16,35 @@
 
 package com.zaxxer.hikari.metrics.prometheus;
 
+import static com.zaxxer.hikari.pool.TestElf.newHikariConfig;
+import static com.zaxxer.hikari.util.UtilityElf.quietlySleep;
+import static org.hamcrest.CoreMatchers.is;
+import static org.junit.Assert.assertThat;
+
+import java.sql.Connection;
+
+import org.junit.Test;
+
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.mocks.StubConnection;
 
 import io.prometheus.client.CollectorRegistry;
-import org.junit.Test;
-
-import java.sql.Connection;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertThat;
 
 public class HikariCPCollectorTest {
    @Test
    public void noConnection() throws Exception {
-      HikariConfig config = new HikariConfig();
-      config.setPoolName("no_connection");
+      HikariConfig config = newHikariConfig();
+      config.setMinimumIdle(0);
       config.setMetricsTrackerFactory(new PrometheusMetricsTrackerFactory());
       config.setDataSourceClassName("com.zaxxer.hikari.mocks.StubDataSource");
 
       StubConnection.slowCreate = true;
       try (HikariDataSource ds = new HikariDataSource(config)) {
-         assertThat(getValue("hikaricp_active_connections", "no_connection"), is(0.0));
-         assertThat(getValue("hikaricp_idle_connections", "no_connection"), is(0.0));
-         assertThat(getValue("hikaricp_pending_threads", "no_connection"), is(0.0));
-         assertThat(getValue("hikaricp_connections", "no_connection"), is(0.0));
+         assertThat(getValue("hikaricp_active_connections", "noConnection"), is(0.0));
+         assertThat(getValue("hikaricp_idle_connections", "noConnection"), is(0.0));
+         assertThat(getValue("hikaricp_pending_threads", "noConnection"), is(0.0));
+         assertThat(getValue("hikaricp_connections", "noConnection"), is(0.0));
       }
       finally {
          StubConnection.slowCreate = false;
@@ -51,15 +54,17 @@ public class HikariCPCollectorTest {
    @Test
    public void noConnectionWithoutPoolName() throws Exception {
       HikariConfig config = new HikariConfig();
+      config.setMinimumIdle(0);
       config.setMetricsTrackerFactory(new PrometheusMetricsTrackerFactory());
       config.setDataSourceClassName("com.zaxxer.hikari.mocks.StubDataSource");
 
       StubConnection.slowCreate = true;
       try (HikariDataSource ds = new HikariDataSource(config)) {
-         assertThat(getValue("hikaricp_active_connections", "HikariPool-1"), is(0.0));
-         assertThat(getValue("hikaricp_idle_connections", "HikariPool-1"), is(0.0));
-         assertThat(getValue("hikaricp_pending_threads", "HikariPool-1"), is(0.0));
-         assertThat(getValue("hikaricp_connections", "HikariPool-1"), is(0.0));
+         String poolName = ds.getHikariConfigMXBean().getPoolName();
+         assertThat(getValue("hikaricp_active_connections", poolName), is(0.0));
+         assertThat(getValue("hikaricp_idle_connections", poolName), is(0.0));
+         assertThat(getValue("hikaricp_pending_threads", poolName), is(0.0));
+         assertThat(getValue("hikaricp_connections", poolName), is(0.0));
       }
       finally {
          StubConnection.slowCreate = false;
@@ -68,8 +73,7 @@ public class HikariCPCollectorTest {
 
    @Test
    public void connection1() throws Exception {
-      HikariConfig config = new HikariConfig();
-      config.setPoolName("connection1");
+      HikariConfig config = newHikariConfig();
       config.setMetricsTrackerFactory(new PrometheusMetricsTrackerFactory());
       config.setDataSourceClassName("com.zaxxer.hikari.mocks.StubDataSource");
       config.setMaximumPoolSize(1);
@@ -77,6 +81,8 @@ public class HikariCPCollectorTest {
       StubConnection.slowCreate = true;
       try (HikariDataSource ds = new HikariDataSource(config);
          Connection connection1 = ds.getConnection()) {
+
+         quietlySleep(1000);
 
          assertThat(getValue("hikaricp_active_connections", "connection1"), is(1.0));
          assertThat(getValue("hikaricp_idle_connections", "connection1"), is(0.0));
@@ -90,8 +96,7 @@ public class HikariCPCollectorTest {
 
    @Test
    public void connectionClosed() throws Exception {
-      HikariConfig config = new HikariConfig();
-      config.setPoolName("connectionClosed");
+      HikariConfig config = newHikariConfig();
       config.setMetricsTrackerFactory(new PrometheusMetricsTrackerFactory());
       config.setDataSourceClassName("com.zaxxer.hikari.mocks.StubDataSource");
       config.setMaximumPoolSize(1);
@@ -101,7 +106,7 @@ public class HikariCPCollectorTest {
          try (Connection connection1 = ds.getConnection()) {
             // close immediately
          }
-         
+
          assertThat(getValue("hikaricp_active_connections", "connectionClosed"), is(0.0));
          assertThat(getValue("hikaricp_idle_connections", "connectionClosed"), is(1.0));
          assertThat(getValue("hikaricp_pending_threads", "connectionClosed"), is(0.0));
