@@ -1,4 +1,4 @@
-<h1><img src="https://github.com/brettwooldridge/HikariCP/wiki/Hikari.png"> HikariCP<sup><sup>&nbsp;It's Faster.</sup></sup><sub><sub><sup>Hi·ka·ri [hi·ka·'lē] &#40;*Origin: Japanese*): light; ray.</sup></sub></sub></h1><br>
+<h1><img src="https://github.com/brettwooldridge/HikariCP/wiki/Hikari.png"> HikariCP<sup><sup>&nbsp;It's Faster.</sup></sup><sub><sub><sup>Hi·ka·ri [hi·ka·'lē] &#40;<i>Origin: Japanese</i>): light; ray.</sup></sub></sub></h1><br>
 
 [![][Build Status img]][Build Status]
 [![][Coverage Status img]][Coverage Status]
@@ -19,7 +19,7 @@ _Java 8 maven artifact:_
     <dependency>
         <groupId>com.zaxxer</groupId>
         <artifactId>HikariCP</artifactId>
-        <version>2.6.2</version>
+        <version>2.7.2</version>
     </dependency>
 ```
 _Java 9 Early Access maven artifact:_
@@ -35,7 +35,7 @@ _Java 7 maven artifact (*maintenance mode*):_
     <dependency>
         <groupId>com.zaxxer</groupId>
         <artifactId>HikariCP-java7</artifactId>
-        <version>2.4.12</version>
+        <version>2.4.13</version>
     </dependency>
 ```
 _Java 6 maven artifact (*maintenance mode*):_
@@ -311,6 +311,11 @@ frameworks. When this property is specified, the ``dataSourceClassName`` propert
 DataSource-specific properties will be ignored.
 *Default: none*
 
+&#128288;``schema``<br/>
+This property sets the default *schema* for databases that support the concept of schemas.
+If this property is not specified, the default schema defined by the JDBC driver is used.
+*Default: driver default*
+
 &#10145;``threadFactory``<br/>
 This property is only available via programmatic configuration or IoC container.  This property
 allows you to set the instance of the ``java.util.concurrent.ThreadFactory`` that will be used
@@ -419,7 +424,7 @@ location of a properties file.  If you intend to use this option, construct a ``
 instance using the default constructor and the properties file will be loaded.
 
 ### Performance Tips
-[MySQL Performnace Tips](https://github.com/brettwooldridge/HikariCP/wiki/MySQL-Configuration)
+[MySQL Performance Tips](https://github.com/brettwooldridge/HikariCP/wiki/MySQL-Configuration)
 
 ### Popular DataSource Class Names
 
@@ -497,8 +502,8 @@ Please perform changes and submit pull requests from the ``dev`` branch instead 
 [Build Status]:https://travis-ci.org/brettwooldridge/HikariCP
 [Build Status img]:https://travis-ci.org/brettwooldridge/HikariCP.svg?branch=dev
 
-[Coverage Status]:https://coveralls.io/r/brettwooldridge/HikariCP?branch=dev
-[Coverage Status img]:https://coveralls.io/repos/brettwooldridge/HikariCP/badge.svg?branch=dev
+[Coverage Status]:https://codecov.io/gh/brettwooldridge/HikariCP
+[Coverage Status img]:https://codecov.io/gh/brettwooldridge/HikariCP/branch/dev/graph/badge.svg
 
 [Dependency Status]:https://www.versioneye.com/user/projects/551ce51c3661f1bee50004e0
 [Dependency Status img]:https://www.versioneye.com/user/projects/551ce51c3661f1bee50004e0/badge.svg?style=flat

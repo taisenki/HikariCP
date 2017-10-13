@@ -16,40 +16,40 @@
 
 package com.zaxxer.hikari;
 
-import static com.zaxxer.hikari.util.UtilityElf.getNullIfEmpty;
-import static java.util.concurrent.TimeUnit.MINUTES;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import com.codahale.metrics.health.HealthCheckRegistry;
+import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
+import com.zaxxer.hikari.util.PropertyElf;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
+import javax.sql.DataSource;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.security.AccessControlException;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadLocalRandom;
 
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
-import javax.sql.DataSource;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.health.HealthCheckRegistry;
-import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
-import com.zaxxer.hikari.util.PropertyElf;
+import static com.zaxxer.hikari.util.UtilityElf.getNullIfEmpty;
+import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 @SuppressWarnings({"SameParameterValue", "unused"})
 public class HikariConfig implements HikariConfigMXBean
 {
    private static final Logger LOGGER = LoggerFactory.getLogger(HikariConfig.class);
 
+   private static final char[] ID_CHARACTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
    private static final long CONNECTION_TIMEOUT = SECONDS.toMillis(30);
    private static final long VALIDATION_TIMEOUT = SECONDS.toMillis(5);
    private static final long IDLE_TIMEOUT = MINUTES.toMillis(10);
@@ -315,25 +315,31 @@ public class HikariConfig implements HikariConfigMXBean
    public void setDriverClassName(String driverClassName)
    {
       Class<?> driverClass = null;
+      ClassLoader threadContextClassLoader = Thread.currentThread().getContextClassLoader();
       try {
-         driverClass = this.getClass().getClassLoader().loadClass(driverClassName);
-         LOGGER.debug("Driver class found in the HikariConfig class classloader {}", this.getClass().getClassLoader());
-      } catch (ClassNotFoundException e) {
-         ClassLoader threadContextClassLoader = Thread.currentThread().getContextClassLoader();
-         if (threadContextClassLoader != null && threadContextClassLoader != this.getClass().getClassLoader()) {
+         if (threadContextClassLoader != null) {
             try {
                driverClass = threadContextClassLoader.loadClass(driverClassName);
-               LOGGER.debug("Driver class found in Thread context class loader {}", threadContextClassLoader);
-            } catch (ClassNotFoundException e1) {
-               LOGGER.error("Failed to load class of driverClassName {} in either of HikariConfig class classloader {} or Thread context classloader {}", driverClassName, this.getClass().getClassLoader(), threadContextClassLoader);
+               LOGGER.debug("Driver class {} found in Thread context class loader {}", driverClassName, threadContextClassLoader);
             }
-         } else {
-            LOGGER.error("Failed to load class of driverClassName {} in HikariConfig class classloader {}", driverClassName, this.getClass().getClassLoader());
+            catch (ClassNotFoundException e) {
+               LOGGER.debug("Driver class {} not found in Thread context class loader {}, trying classloader {}",
+                            driverClassName, threadContextClassLoader, this.getClass().getClassLoader());
+            }
          }
+
+         if (driverClass == null) {
+            driverClass = this.getClass().getClassLoader().loadClass(driverClassName);
+            LOGGER.debug("Driver class {} found in the HikariConfig class classloader {}", driverClassName, this.getClass().getClassLoader());
+         }
+      } catch (ClassNotFoundException e) {
+         LOGGER.error("Failed to load driver class {} from HikariConfig class classloader {}", driverClassName, this.getClass().getClassLoader());
       }
+
       if (driverClass == null) {
-         throw new RuntimeException("Failed to load class of driverClassName [" + driverClassName + "] in either of HikariConfig class loader or Thread context classloader");
+         throw new RuntimeException("Failed to load driver class " + driverClassName + " in either of HikariConfig class loader or Thread context classloader");
       }
+
       try {
          driverClass.newInstance();
          this.driverClassName = driverClassName;
@@ -550,8 +556,9 @@ public class HikariConfig implements HikariConfigMXBean
       if (metricRegistry != null) {
          metricRegistry = getObjectOrPerformJndiLookup(metricRegistry);
 
-         if (!(metricRegistry instanceof MetricRegistry)) {
-            throw new IllegalArgumentException("Class must be an instance of com.codahale.metrics.MetricRegistry");
+         if (!(metricRegistry.getClass().getName().contains("MetricRegistry"))
+             && !(metricRegistry.getClass().getName().contains("MeterRegistry"))) {
+            throw new IllegalArgumentException("Class must be instance of com.codahale.metrics.MetricRegistry or io.micrometer.core.instrument.MeterRegistry");
          }
       }
 
@@ -854,7 +861,7 @@ public class HikariConfig implements HikariConfigMXBean
    public void validate()
    {
       if (poolName == null) {
-         poolName = "HikariPool-" + generatePoolNumber();
+         poolName = generatePoolName();
       }
       else if (isRegisterMbeans && poolName.contains(":")) {
          throw new IllegalArgumentException("poolName cannot contain ':' when used with JMX");
@@ -1010,17 +1017,52 @@ public class HikariConfig implements HikariConfigMXBean
       }
    }
 
-   private int generatePoolNumber()
+   private String generatePoolName()
    {
-      // Pool number is global to the VM to avoid overlapping pool numbers in classloader scoped environments
-      synchronized (System.getProperties()) {
-         final int next = Integer.getInteger("com.zaxxer.hikari.pool_number", 0) + 1;
-         System.setProperty("com.zaxxer.hikari.pool_number", String.valueOf(next));
-         return next;
+      final String prefix = "HikariPool-";
+      try {
+         // Pool number is global to the VM to avoid overlapping pool numbers in classloader scoped environments
+         synchronized (System.getProperties()) {
+            final String next = String.valueOf(Integer.getInteger("com.zaxxer.hikari.pool_number", 0) + 1);
+            System.setProperty("com.zaxxer.hikari.pool_number", next);
+            return prefix + next;
+         }
+      } catch (AccessControlException e) {
+         // The SecurityManager didn't allow us to read/write system properties
+         // so just generate a random pool number instead
+         final ThreadLocalRandom random = ThreadLocalRandom.current();
+         final StringBuilder buf = new StringBuilder(prefix);
+
+         for (int i = 0; i < 4; i++) {
+            buf.append(ID_CHARACTERS[random.nextInt(62)]);
+         }
+
+         LOGGER.info("assigned random pool name '{}' (security manager prevented access to system properties)", buf);
+
+         return buf.toString();
       }
    }
 
+   /**
+    * Deprecated, use {@link #copyStateTo(HikariConfig)}.
+    * <p>
+    * Copies the state of {@code this} into {@code other}.
+    *</p>
+    *
+    * @param other Other {@link HikariConfig} to copy the state to.
+    */
+   @Deprecated
    public void copyState(HikariConfig other)
+   {
+      copyStateTo(other);
+   }
+
+   /**
+    * Copies the state of {@code this} into {@code other}.
+    *
+    * @param other Other {@link HikariConfig} to copy the state to.
+    */
+   public void copyStateTo(HikariConfig other)
    {
       for (Field field : HikariConfig.class.getDeclaredFields()) {
          if (!Modifier.isFinal(field.getModifiers())) {

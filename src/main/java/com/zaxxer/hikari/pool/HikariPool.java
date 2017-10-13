@@ -45,6 +45,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
 
+import com.zaxxer.hikari.metrics.micrometer.MicrometerMetricsTrackerFactory;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,6 +81,9 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
    private final long ALIVE_BYPASS_WINDOW_MS = Long.getLong("com.zaxxer.hikari.aliveBypassWindowMs", MILLISECONDS.toMillis(500));
    private final long HOUSEKEEPING_PERIOD_MS = Long.getLong("com.zaxxer.hikari.housekeeping.periodMs", SECONDS.toMillis(30));
+
+   private static final String EVICTED_CONNECTION_MESSAGE = "(connection was evicted)";
+   private static final String DEAD_CONNECTION_MESSAGE = "(connection is dead)";
 
    private final PoolEntryCreator POOL_ENTRY_CREATOR = new PoolEntryCreator(null);
    private final PoolEntryCreator POST_FILL_POOL_ENTRY_CREATOR = new PoolEntryCreator("After adding ");
@@ -158,34 +163,28 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
       try {
          long timeout = hardTimeout;
-         PoolEntry poolEntry = null;
-         try {
-            do {
-               poolEntry = connectionBag.borrow(timeout, MILLISECONDS);
-               if (poolEntry == null) {
-                  break; // We timed out... break and throw exception
-               }
-
-               final long now = currentTime();
-               if (poolEntry.isMarkedEvicted() || (elapsedMillis(poolEntry.lastAccessed, now) > ALIVE_BYPASS_WINDOW_MS && !isConnectionAlive(poolEntry.connection))) {
-                  closeConnection(poolEntry, "(connection is evicted or dead)"); // Throw away the dead connection (passed max age or failed alive test)
-                  timeout = hardTimeout - elapsedMillis(startTime);
-               }
-               else {
-                  metricsTracker.recordBorrowStats(poolEntry, startTime);
-                  return poolEntry.createProxyConnection(leakTaskFactory.schedule(poolEntry), now);
-               }
-            } while (timeout > 0L);
-
-            metricsTracker.recordBorrowTimeoutStats(startTime);
-         }
-         catch (InterruptedException e) {
-            if (poolEntry != null) {
-               poolEntry.recycle(startTime);
+         do {
+            PoolEntry poolEntry = connectionBag.borrow(timeout, MILLISECONDS);
+            if (poolEntry == null) {
+               break; // We timed out... break and throw exception
             }
-            Thread.currentThread().interrupt();
-            throw new SQLException(poolName + " - Interrupted during connection acquisition", e);
-         }
+
+            final long now = currentTime();
+            if (poolEntry.isMarkedEvicted() || (elapsedMillis(poolEntry.lastAccessed, now) > ALIVE_BYPASS_WINDOW_MS && !isConnectionAlive(poolEntry.connection))) {
+               closeConnection(poolEntry, poolEntry.isMarkedEvicted() ? EVICTED_CONNECTION_MESSAGE : DEAD_CONNECTION_MESSAGE); // Throw away the dead connection (passed max age or failed alive test)
+               timeout = hardTimeout - elapsedMillis(startTime);
+            }
+            else {
+               metricsTracker.recordBorrowStats(poolEntry, startTime);
+               return poolEntry.createProxyConnection(leakTaskFactory.schedule(poolEntry), now);
+            }
+         } while (timeout > 0L);
+
+         metricsTracker.recordBorrowTimeoutStats(startTime);
+      }
+      catch (InterruptedException e) {
+         Thread.currentThread().interrupt();
+         throw new SQLException(poolName + " - Interrupted during connection acquisition", e);
       }
       finally {
          suspendResumeLock.release();
@@ -270,8 +269,11 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
    public void setMetricRegistry(Object metricRegistry)
    {
-      if (metricRegistry != null) {
+      if (metricRegistry != null && metricRegistry.getClass().getName().contains("MetricRegistry")) {
          setMetricsTrackerFactory(new CodahaleMetricsTrackerFactory((MetricRegistry) metricRegistry));
+      }
+      else if (metricRegistry != null && metricRegistry.getClass().getName().contains("MeterRegistry")) {
+         setMetricsTrackerFactory(new MicrometerMetricsTrackerFactory((MeterRegistry) metricRegistry));
       }
       else {
          setMetricsTrackerFactory(null);
@@ -694,13 +696,11 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
                afterPrefix = "After cleanup  ";
 
                final List<PoolEntry> notInUse = connectionBag.values(STATE_NOT_IN_USE);
-               int removed = 0;
+               int toRemove = notInUse.size() - config.getMinimumIdle();
                for (PoolEntry entry : notInUse) {
-                  if (elapsedMillis(entry.lastAccessed, now) > idleTimeout && connectionBag.reserve(entry)) {
+                  if (toRemove > 0 && elapsedMillis(entry.lastAccessed, now) > idleTimeout && connectionBag.reserve(entry)) {
                      closeConnection(entry, "(connection has passed idleTimeout)");
-                     if (++removed > config.getMinimumIdle()) {
-                        break;
-                     }
+                     toRemove--;
                   }
                }
             }
