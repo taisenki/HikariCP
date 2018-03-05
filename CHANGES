@@ -1,5 +1,45 @@
 HikariCP Changes
 
+Changes in 2.7.7
+
+ * fixed issue whereby configuration through the HikariConfigMXBean could not be altered due
+   to the sealed configuration change introduced in 2.7.5.
+
+Changes in 2.7.6
+
+ * issue 1064 fixed regression where HikariConfig.copyStateTo() propagated the "sealed" status
+   of the source configuration to the target configuration -- preventing further changes.
+
+Changes in 2.7.5
+
+ * issue 1061/pull 1062 fixed compatibility issue with requery.io caused by HikariCP's
+   proxied Statement class returning a driver-native ResultSet instance from getGeneratedKeys()
+   instead of returning a HikariCP proxied ResultSet.
+
+ * pull 1058 enable quantiles on Prometheus metrics.
+
+ * pull 1055 fixed incorrect JavaDoc for HikariConfigMXBean.getMinimumIdle() method.
+
+ * issue 1045/pull 1047 added Automatic-Module-Name to jar manifest to ensure that the Java 8
+   library plays well with the Java 9 module system.
+
+ * introduced the concept of a "sealed" configuration.  Once a pool is started, attempts to
+   alter its configuration outside of the HikariConfigMXBean will result in an IllegalStateException.
+   
+Changes in 2.7.4
+
+ * pull 1026 added support for SQL Server's specific isolation level (SNAPSHOT).
+
+ * issue 926/pull 1022 HikariJNDIFactory should not throw a NamingException or else
+   cascading to other object factories cannot occur.
+
+Changes in 2.7.3
+
+ * issue 1003 added PostgreSQL SQL State 0A000 to list of unrecoverable states calling
+   for eviction.
+
+ * pull 1002 updated micrometer support due to API changes in their release candidate.
+
 Changes in 2.7.2
 
  * issue 983 fix logic that determines how many idle connections can be removed, without

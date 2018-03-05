@@ -16,6 +16,7 @@
 package com.zaxxer.hikari.pool;
 
 import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariConfigMXBean;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import org.junit.Test;
@@ -29,13 +30,14 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.TimeUnit;
 
+import static com.zaxxer.hikari.pool.TestElf.getUnsealedConfig;
 import static com.zaxxer.hikari.pool.TestElf.newHikariConfig;
 import static org.junit.Assert.assertEquals;
 
 public class TestMBean
 {
    @Test
-   public void testMBeanRegistration() throws SQLException {
+   public void testMBeanRegistration() {
       HikariConfig config = newHikariConfig();
       config.setMinimumIdle(0);
       config.setMaximumPoolSize(1);
@@ -44,9 +46,7 @@ public class TestMBean
       config.setConnectionTestQuery("VALUES 1");
       config.setDataSourceClassName("com.zaxxer.hikari.mocks.StubDataSource");
 
-      try (HikariDataSource ds = new HikariDataSource(config)) {
-         // Close immediately
-      }
+      new HikariDataSource(config).close();
    }
 
    @Test
@@ -63,7 +63,7 @@ public class TestMBean
 
       try (HikariDataSource ds = new HikariDataSource(config)) {
 
-         ds.setIdleTimeout(3000);
+         getUnsealedConfig(ds).setIdleTimeout(3000);
 
          TimeUnit.SECONDS.sleep(1);
 
@@ -74,7 +74,7 @@ public class TestMBean
          assertEquals(0, hikariPoolMXBean.getActiveConnections());
          assertEquals(3, hikariPoolMXBean.getIdleConnections());
 
-         try (Connection connection = ds.getConnection()) {
+         try (Connection ignored = ds.getConnection()) {
             assertEquals(1, hikariPoolMXBean.getActiveConnections());
 
             TimeUnit.SECONDS.sleep(1);
@@ -92,6 +92,24 @@ public class TestMBean
       }
       finally {
          System.clearProperty("com.zaxxer.hikari.housekeeping.periodMs");
+      }
+   }
+
+   @Test
+   public void testMBeanChange() {
+      HikariConfig config = newHikariConfig();
+      config.setMinimumIdle(3);
+      config.setMaximumPoolSize(5);
+      config.setRegisterMbeans(true);
+      config.setConnectionTimeout(2800);
+      config.setConnectionTestQuery("VALUES 1");
+      config.setDataSourceClassName("com.zaxxer.hikari.mocks.StubDataSource");
+
+      try (HikariDataSource ds = new HikariDataSource(config)) {
+         HikariConfigMXBean hikariConfigMXBean = ds.getHikariConfigMXBean();
+         hikariConfigMXBean.setIdleTimeout(3000);
+
+         assertEquals(3000, ds.getIdleTimeout());
       }
    }
 }
